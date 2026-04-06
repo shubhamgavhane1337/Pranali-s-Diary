@@ -114,8 +114,15 @@ const ToDo = () => {
            setGcalToken(null);
            if (!silent) alert("Your Google Calendar session has expired. Please connect again.");
            break;
+        } else if (req.status === 403) {
+           setGcalToken(null);
+           localStorage.removeItem('autoConnectGcal');
+           alert("Google Permission Denied: Please make sure you check the Calendar checkbox when singing into Google. Reconnect now.");
+           break;
         } else {
-           console.error("GCal Sync Error", await req.text());
+           const errMsg = await req.text();
+           console.error("GCal Sync Error", errMsg);
+           if (!silent) alert(`Failed to add task to calendar! Error Code: ${req.status}`);
         }
       }
       if (!silent && count > 0) {
@@ -151,6 +158,10 @@ const ToDo = () => {
       callback: (response) => {
         if (response.error) {
           console.error('Authentication failed:', response);
+          if (auto === true) {
+             alert('Google Auto-Connect was blocked by your browser or requires explicit consent. Please click "Connect Calendar" directly.');
+             localStorage.removeItem('autoConnectGcal');
+          }
           return;
         }
         setGcalToken(response.access_token);
@@ -257,6 +268,7 @@ const ToDo = () => {
 
   const todayTasks = appData.tasks.filter(t => t.date === todayStr || t.routine);
   const tomorrowTasks = appData.tasks.filter(t => t.date === tomorrowStr && !t.routine);
+  const allUpcomingTasks = appData.tasks.filter(t => !t.completed && !t.routine).sort((a,b) => new Date(a.date) - new Date(b.date));
 
   return (
     <div>
@@ -271,28 +283,42 @@ const ToDo = () => {
              <button onClick={() => setView('daily')} className={`btn ${view === 'daily' ? '' : 'btn-secondary'}`} style={{ padding: '0.5rem 1rem' }}>
                 <LayoutList size={18} /> Daily
              </button>
+             <button onClick={() => setView('upcoming')} className={`btn ${view === 'upcoming' ? '' : 'btn-secondary'}`} style={{ padding: '0.5rem 1rem' }}>
+                <LayoutList size={18} /> Upcoming
+             </button>
              <button onClick={() => setView('monthly')} className={`btn ${view === 'monthly' ? '' : 'btn-secondary'}`} style={{ padding: '0.5rem 1rem' }}>
                 <CalendarDays size={18} /> Monthly
              </button>
           </div>
-          <button 
-            className={`btn ${gcalToken ? 'btn-secondary' : ''}`} 
-            onClick={handleConnect} 
-            disabled={!!gcalToken || isSyncing}
-            style={{ width: '180px' }}
-          >
-            {gcalToken ? (
-              <>
-                <Check size={20} className="text-secondary" color="var(--primary)" />
-                Connected
-              </>
-            ) : (
-              <>
-                <Calendar size={20} className="text-secondary" color="var(--secondary)" />
-                Connect Calendar
-              </>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {gcalToken && (
+               <button 
+                 className="btn btn-secondary" 
+                 onClick={() => { setGcalToken(null); localStorage.removeItem('autoConnectGcal'); }}
+                 title="Logout & Disconnect Google Calendar"
+               >
+                  Disconnect
+               </button>
             )}
-          </button>
+            <button 
+              className={`btn ${gcalToken ? 'btn-secondary' : ''}`} 
+              onClick={() => handleConnect(false)} 
+              disabled={isSyncing}
+              style={{ width: '180px' }}
+            >
+              {gcalToken ? (
+                <>
+                  <Check size={20} className="text-secondary" color="var(--primary)" />
+                  Re-Sync
+                </>
+              ) : (
+                <>
+                  <Calendar size={20} className="text-secondary" color="var(--secondary)" />
+                  Connect Calendar
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -338,7 +364,19 @@ const ToDo = () => {
         </form>
       </div>
 
-      {view === 'daily' ? (
+      {view === 'upcoming' && (
+        <div className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem' }}>
+           <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.3rem' }}>
+             <CalendarDays size={20} color="var(--primary)" /> All Scheduled Tasks
+           </h3>
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+             {allUpcomingTasks.map(t => renderTask(t, t.date, false))}
+             {allUpcomingTasks.length === 0 && <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>No upcoming tasks.</div>}
+           </div>
+        </div>
+      )}
+
+      {view === 'daily' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '2rem' }}>
           <div>
             <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.3rem' }}>
@@ -362,7 +400,9 @@ const ToDo = () => {
             </div>
           </div>
         </div>
-      ) : (
+      )}
+      
+      {view === 'monthly' && (
         <>
           {/* Desktop Grid View */}
           <div className="desktop-only glass-panel" style={{ padding: '2rem' }}>
